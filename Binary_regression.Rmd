@@ -1,0 +1,161 @@
+---
+title: "project 8"
+author: "Binary logistic regression"
+date: "2022 M06 2"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(tidyverse)
+library(aod) 
+library(Rcpp) 
+library(rcompanion)  # to calculate pseudo R2
+library(visreg)      # for potting logodds and probability 
+library(broom)
+library(GGally)
+```
+
+```{r cars}
+mydata=read.csv(file.choose(),header=T,sep = ",")
+head(mydata)
+str(mydata)
+summary(mydata)
+#checking for missing value
+sum(is.na(mydata))
+#result show, we have no missing value in our dataset
+#identifying the rows with NAs
+r=rownames(mydata)[apply(mydata, 2, anyNA)]
+#Similary result shows no row with missing value
+
+#Data Visualization
+ggplot(mydata, aes(gre, colour =gre)) +
+geom_freqpoly(binwidth = 1) + labs(title="gre Distribution by admit")
+#visual 2
+ggpairs(mydata,4)
+ggpairs(mydata,3)
+
+#Let's calculate the frequency of response variable under each rank. 
+sapply(mydata, sd) 
+#Result shows the standard deviation value of each variable, for variable gre we have sd value of 115.52
+##two-way contingency table of categorical outcome and predictors we want to make sure there are not 0 cells
+xtabs(~ admit + rank, data = mydata)
+#Output shows the cross tab for admit and rank, rank 1, 2, 3, 4 under admit 0 is 28,97,93 and 55 respectively while rank 1, 2, 3, 4 under admit 1 is 33, 54, 28 and 12 respectively.
+mydata$rank = factor(mydata$rank)
+mylogit = glm(admit ~ gre + gpa + rank, data = mydata, family = "binomial") #binary logistic model
+summary(mylogit)
+#We see the deviance residuals, which is a measure of model fit. This part of output shows the distribution of the deviance residuals for individual cases used in the model.
+#Variables whose P value less than 0.05 are considered to be statistically significant. Since the p-value is < 0.05 for gre,gpa,factor(rank)2,factor(rank)3 and factor(rank)4 variables are significant. which means there is relationship between the dependent variable admit and the independent variables at 5% confidence level. The positive coefficient of gre and gpa shows a positive relationship while the negative coefficient of factor(rank)2,factor(rank)3 and factor(rank)4 shows a negative relationship.
+#The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable.
+#For every one unit change in gre, the log odds of admission (versus not admission) increases by 0.002264
+#For every one unit change in gpa, the log odds of admission (versus not admission) increases by 0.804038
+#The rank means having attended an undergraduate institution with rank of 2, versus an institution with a rank of 1, changes the log odds of admission by negative 0.675443
+#Similarly, having attended an undergraduate institution with rank of 3, versus an institution with a rank of 1, changes the log odds of admission by negative 1.340204 and lastly, having attended an undergraduate institution with rank of 4, versus an institution with a rank of 1, changes the log odds of admission by negative 1.551464 and lastly
+
+#We can use the confint function to obtain confidence intervals for the coefficient estimates. Note that for logistic models, confidence intervals are based on the profiled log-likelihood function. We can also get CIs based on just the standard errors by using the default method
+## CIs using profiled log-likelihood confint(mylogit) 
+confint(mylogit) 
+## CIs using standard errors confint.default(mylogit) 
+confint.default(mylogit)
+
+wald.test(b = coef(mylogit), Sigma = vcov(mylogit), Terms = 4:6)
+#From the output we can see that the p-value of the test is 0.00011.
+#H0: overall effect of rank is not significant. that is all equal to zero
+#H1: overall effect of rank is significant. that is not all equal to zero
+#Since this p-value is less than 0.05, we reject the null hypothesis of the Wald test and conclude that the overall effect of rank is statistically significant
+l = cbind(0,0,0,1,-1,0) 
+wald.test(b = coef(mylogit), Sigma = vcov(mylogit), L = l) 
+#Since this p-value is less than 0.05, we also reject the null hypothesis of the Wald test. The chi-squared test statistic of 5.5 with 1 degree of freedom is associated with a p-value of 0.019, indicating that the difference between the coefficient for rank=2 and the coefficient for rank=3 is statistically significant.
+#Odd Ratio
+#The ODDS is the ratio of the probability of an event occurring to the event not occurring. When we take a ratio of two such odds, it called the Odds Ratio. 
+#Mathematically, one can compute the odds ratio by taking exponent of the estimated coefficients.
+(exp(coef(mylogit))) #obtaining odds ratio
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+#Odds ratios that are greater than 1 indicate that the even is more likely to occur as the predictor increases. Odds ratios that are less than 1 indicate that the event is less likely to occur as the predictor increases.The above ODDS ratio table,we can observe that gre has an ODDS Ratio of 1.002, which indicates that for a one unit increase in gre the odds of being admitted to graduate school (versus not being admitted) increase by a factor of 1.002 
+
+newdata1 = with(mydata, data.frame(gre = mean(gre), gpa = mean(gpa), rank = factor(1:4))) 
+newdata1$rankP <- predict(mylogit, newdata = newdata1, type = "response")
+newdata1
+#The output shows that the predicted probability of being accepted into a graduate program is 0.5166016 for students from the highest prestige undergraduate institutions (rank=1), and 0.3522846 for students from the lowest ranked institutions (rank=2), holding gre and gpa at their means.
+newdata2 = with(mydata,   data.frame(gre = rep(seq(from = 200, to = 800, length.out = 100), 4),   gpa = mean(gpa), rank = factor(rep(1:4, each = 100)))) 
+
+newdata3 = cbind(newdata2, predict(mylogit, newdata = newdata2, type="link", se=TRUE)) 
+newdata3 = within(newdata3, {
+  PredictedProb <- plogis(fit)
+  LL = plogis(fit - (1.96 * se.fit))   
+  UL = plogis(fit + (1.96 * se.fit))
+}) 
+ ## view first few rows of final dataset
+head(newdata3) 
+
+ggplot(newdata3, aes(x = gre, y = PredictedProb)) +   geom_ribbon(aes(ymin = LL, ymax = UL, fill = rank), alpha = .2) +   geom_line(aes(colour = rank), size=1)
+
+with(mylogit, null.deviance - deviance) 
+#The degrees of freedom for the difference between the two models is equal to the number of predictor variables in the mode
+with(mylogit, df.null - df.residual) 
+with(mylogit, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE)) 
+logLik(mylogit) 
+#The chi-square of 41.46 with 5 degrees of freedom and an associated p-value of less than 0.05 tells us that our model as a whole fits significantly better than an empty model
+
+# Pseudo R_squared values and Likelyhood ratio test
+nagelkerke(mylogit)
+#The nagelkerke( ) function of rcompanion package provides three types of Pseudo R-squared value (McFadden, Cox and Snell, and Cragg and Uhler) and Likelihood ratio test results. The McFadden Pseudo R-squared value is the commonly reported metric for binary logistic regression model fit.The table result showed that the McFadden Pseudo R-squared value is 0.0829219, which indicates not a decent model fit.
+#probability plot
+# Probabilities of admit wrt gre
+visreg(mylogit, "gre", scale="response", rug=2, xlab="gre level",
+       ylab="P(admit)")
+#In order to understand how the admit probabilities change with given values of independent variables, we generate the probability plots using visreg function. Here, we have plotted the gre in the x-axis and admit probabilities on the y-axis. The vertical rug lines indicate the density of observation along the x-axis. The dark band. along the blue line indicates a 95% confidence interval band.
+
+#Residual plot
+plot(mylogit$residuals)
+
+#diagnostics
+# Predict the probability (p) of admit positivity
+probabilities = predict(mylogit, type = "response")
+# Select only numeric predictors
+mydata2 = mydata %>%
+  dplyr::select_if(is.numeric) 
+predictors = colnames(mydata)
+# Bind the logit and tidying the data for plot
+mydata2 <- mydata2 %>%
+mutate(logit = log(probabilities/(1-probabilities))) %>%
+ gather(key = "predictors", value = "predictor.value", -logit)
+
+ggplot(mydata2, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw() + 
+  facet_wrap(~predictors, scales = "free_y")
+#The smoothed scatter plots show that variables gre, and gpa are all quite linearly associated with the admit outcome in logit scale.
+
+#Influential values are extreme individual data points that can alter the quality of the logistic regression model.
+
+#The most extreme values in the data can be examined by visualizing the Cook's distance values. Here we label the top 3 largest values:
+plot(mylogit, which = 4, id.n = 3)
+#To check whether the data contains potential influential observations, the standardized residual error can be inspected. Data points with an absolute standardized residuals above 3 represent possible outliers and may deserve closer attention.
+# Extract model results
+mylogit.data = augment(mylogit) %>% 
+  mutate(index = 1:n()) 
+
+mylogit.data %>% top_n(3, .cooksd)
+ggplot(mylogit.data, aes(index, .std.resid)) + 
+  geom_point(aes(color = admit), alpha = .5) +
+  theme_bw()
+mylogit.data %>% 
+  filter(abs(.std.resid) > 3)
+#There is no influential observations in our data.
+#Multicollinearity
+#Multicollinearity corresponds to a situation where the data contain highly correlated predictor variables.
+#Multicollinearity is an important issue in regression analysis and should be fixed by removing the concerned variables. It can be assessed using the R function vif() [car package], which computes the variance inflation factors:
+car::vif(mylogit)
+#As a rule of thumb, a VIF value that exceeds 5 or 10 indicates a problematic amount of collinearity. In our example, there is no collinearity: all variables have a value of VIF well below 5.
+```
+
+
+```{r pressure, echo=FALSE}
+
+```
+
